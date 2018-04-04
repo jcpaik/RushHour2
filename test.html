@@ -1,0 +1,85 @@
+<!DOCTYPE html5>
+
+<html>
+	<head>
+		<script src="https://d3js.org/d3.v5.min.js"></script>
+		<style>
+			.car {
+				stroke: black;
+				stroke-width: 3;
+			}
+		</style>
+	</head>
+	<body>
+		<svg width="1000", height="1000"></svg>
+		<script>
+			var svg = d3.select("svg");
+
+			/*
+			1. Field information - coordinate-wise
+			2. Rendering information - pixel-wise
+			*/
+
+			var carData = [
+				{x: 300, y: 500, len: 300},
+				{x: 300, y: 400, len: 200},
+				{x: 200, y: 300, len: 300}
+			];
+
+			// Attach and render car data
+			var cars = svg.selectAll("rect")
+				.data(carData)
+				.enter().append("rect")
+				.classed("car", true)
+				.attr("width", function (d) {return d.len})
+				.attr("height", 50)
+				.attr("x", function (d) {return d.x;}) // Why does it has to be d.x, not 50 * d.x???
+				// Guess: because the value now is 'bind' to such value
+				.attr("y", function (d) {return d.y;})
+				.attr("fill", "#f00");
+
+			// selection.data
+			// Attaches data to selection
+			// Returns the selection itself with enter() and exit()
+			// Data with no DOM attached passes to enter() selection
+
+			// selection.enter()
+			// Returns the enter() selection with no DOM attached (yet)
+
+			// selection.append(type)
+			// Appends an DOM element of type and returns the selected 
+
+			cars.call(d3.drag()
+				.on("start", onDragStart)
+				.on("drag", onDrag)
+				.on("end", onDragEnd));
+
+			// Attach events
+
+			function onDragStart(d) {
+				d3.select(this).raise().classed("active", true);
+			}
+			// When a specified event is dispatched, each listener will be invoked with the same context and arguments as selection.on listeners: the current datum d and index i, with the this context as the current DOM element.
+
+			function onDrag(d) {
+				// event.x : new position of the element
+
+				// What does the assginment do?
+				// Stores the x value to the box
+				// No assignment -> 'forgets' new value of x
+				// Datum has to be in sync with new position
+
+				var newX = Math.max(d3.event.x, 100);
+
+				d3.select(this)
+					.attr("x", d.x = newX)
+					.attr("y", d.y = d3.event.y);
+				console.log(d3.event.x);
+			}
+
+			function onDragEnd(d) {
+				d3.select(this).classed("active", false);
+			}
+		</script>
+	</body>
+</html>

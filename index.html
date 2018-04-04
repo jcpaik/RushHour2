@@ -1,0 +1,304 @@
+<!DOCTYPE html5>
+
+<html>
+	<head>
+		<script src="https://d3js.org/d3.v5.min.js"></script>
+		<style>
+			.car {
+				stroke: black;
+				stroke-width: 3;
+			}
+		</style>
+	</head>
+	<body>
+		<svg width="1000", height="1000"></svg>
+		<script>
+			var svg = d3.select("svg");
+
+			/*
+			 * Raw level representation
+			 * .: Empty, X: Red car, Other alphabets: Other cars
+			 */
+
+			var rawLevelStrings = [
+				"AA...O" +
+				"P..Q.O" +
+				"PXXQ.O" +
+				"P..Q.." +
+				"B...CC" +
+				"B.RRR." ,
+				"A..OOO" +
+				"A..B.P" +
+				"XX.BCP" +
+				"QQQ.CP" +
+				"..D.EE" +
+				"FFDGG." ,
+				"......" +
+				"......" +
+				".XXO.." +
+				".AAO.P" +
+				".B.O.P" +
+				".BCC.P" ,
+				"O..P.." +
+				"O..P.." +
+				"OXXP.." +
+				"..AQQQ" +
+				"..A..B" +
+				"..RRRB"
+			];
+
+			function loadLevel(rawLevelString) {
+				var rawLevel = [];
+				for (var i = 0; i < 36; i += 6)
+					rawLevel[i / 6] = rawLevelString.slice(i, i + 6).toUpperCase().split("");
+				for (var i = 0; i < 6; i++)
+					for (var j = 0; j < i; j++) {
+						var tmp = rawLevel[i][j];
+						rawLevel[i][j] = rawLevel[j][i];
+						rawLevel[j][i] = tmp;
+					}
+
+				var CarType = Object.freeze({
+					HORIZONTAL: "HORIZONTAL",
+					VERTICAL: "VERTICAL"
+				});
+
+				// Read off the raw level field and initialize field data
+
+				// Stores position (i, j) and horizontal / vertical-ness
+				var cellSize = 100;
+				var carData = [];
+				var colorMap = {
+					'A': "#7BBE3F",
+					'B': "#F9A22D",
+					'C': "#9EC0D2",
+					'D': "#FFC0BD",
+					'E': "#8941B7",
+					'F': "#00824A",
+					'G': "#474747",
+					'H': "#F0E9C9",
+					'I': "#EDEDED",
+					'J': "#784B00",
+					'K': "#003D20",
+					'O': "#FFF200",
+					'P': "#F5D3FD",
+					'Q': "#3B39AA",
+					'R': "#26A96A",
+					'X': "#FF0000"
+				};
+
+				var occupied = (new Array(6)).fill([]).map(function(){
+					return (new Array(6)).fill(false);
+				});
+
+				function extractCar(i, j) {
+					var carName = rawLevel[i][j];
+					
+					if (carName == '.') {
+						throw new InternalError("Tried to extract a car on an empty place");
+						return;
+					}
+					
+					if (carName in carData) {
+						throw new SyntaxError("Multiple cars of same alphabet detected");
+						return;
+					}
+
+					if (!(carName in colorMap)) {
+						throw new SyntaxError("Car with undefined color detected");
+						return;
+					}
+
+					if (i + 1 < 6 && rawLevel[i + 1][j] == carName) {
+						// The car is horizontal
+						var len = 0;
+						// Read off the car and clear up the charaters
+						while (i + len < 6 && rawLevel[i + len][j] == carName) {
+							rawLevel[i + len][j] = '.';
+							occupied[i + len][j] = true;
+							len++;
+						}
+
+						carData[carName] = {
+							name: carName,
+							i: i, 
+							j: j, 
+							length: len, 
+							type: CarType.HORIZONTAL,
+							x: cellSize * i, // Need to store x and y separately to handle drag events
+							y: cellSize * j
+						};
+					} else if (j + 1 < 6 && rawLevel[i][j + 1] == carName) {
+						// The car is vertical
+						var len = 0;
+						// Read off the car and clean up the characters
+						while (j + len < 6 && rawLevel[i][j + len] == carName) {
+							rawLevel[i][j + len] = '.';
+							occupied[i][j + len] = true;
+							len++;
+						}
+
+						carData[carName] = {
+							name: carName,
+							i: i, 
+							j: j, 
+							length: len, 
+							type: CarType.VERTICAL,
+							x: cellSize * i,
+							y: cellSize * j
+						};
+					} else {
+						// The car is neither horizontal or vertical (of size 1)
+						throw new SyntaxError("A car of size 1 by 1 detected");
+						return;
+					}
+				}
+
+				for (var i = 0; i < 6; i++)
+					for (var j = 0; j < 6; j++)
+						if (rawLevel[i][j] != '.')
+							extractCar(i, j);
+				if (!('X' in carData))
+					throw new SyntaxError("There is no car of name X");
+				carData['X'].escaped = false;
+				if (carData['X'].j != 2)
+					throw new SyntaxError("The car X is not positioned at j == 2");
+
+				/*
+				1. Field information - coordinate-wise
+				2. Rendering information - pixel-wise
+				*/
+
+				// Attach and render car data
+				var cars = svg.selectAll("rect")
+					.data(Object.values(carData))
+					.enter().append("rect")
+					.classed("car", true)
+					.attr("width", function (d) {
+						if (d.type == CarType.HORIZONTAL)
+							return cellSize * d.length;
+						else
+							return cellSize;
+					})
+					.attr("height", function (d) {
+						if (d.type == CarType.VERTICAL)
+							return cellSize * d.length;
+						else
+							return cellSize;
+					})
+					.attr("x", function (d) { return d.x; })
+					.attr("y", function (d) { return d.y; })
+					.attr("fill", function (d) { return colorMap[d.name]; });
+
+				cars.call(d3.drag()
+					.on("start", onDragStart)
+					.on("drag", onDrag)
+					.on("end", onDragEnd));
+
+				// Attach events
+
+				function onDragStart(d) {
+					// If the main car escaped, then do nothing
+					if (d.name == 'X' && d.escaped)
+						return;
+
+					d3.select(this).raise().classed("active", true);
+
+					if (d.type == CarType.HORIZONTAL) {
+						// Remove car from boolean field
+						for (var i = d.i; i < d.i + d.length; i++)
+							occupied[i][d.j] = false;
+
+						// Compute the minimum/maximum of i and x
+						d.min_i = d.i;
+						while (d.min_i > 0 && !occupied[d.min_i - 1][d.j])
+							d.min_i--;
+						d.max_i = d.i;
+						while (d.max_i + d.length < 6 && !occupied[d.max_i + d.length][d.j])
+							d.max_i++;
+
+						// If the car is the main car and can exit the field
+						if (d.name == 'X' && d.max_i + d.length == 6)
+							d.max_i = 100; // Allow the car to go further than the table
+
+						d.min_x = cellSize * d.min_i;
+						d.max_x = cellSize * d.max_i;
+					} else if (d.type == CarType.VERTICAL) {
+						// Remove car from boolean field
+						for (var j = d.j; j < d.j + d.length; j++)
+							occupied[d.i][j] = false;
+
+						// Compute the minimum/maximum of j and y
+						d.min_j = d.j;
+						while (d.min_j > 0 && !occupied[d.i][d.min_j - 1])
+							d.min_j--;
+						d.max_j = d.j;
+						while (d.max_j + d.length < 6 && !occupied[d.i][d.max_j + d.length])
+							d.max_j++;
+						d.min_y = cellSize * d.min_j;
+						d.max_y = cellSize * d.max_j;
+					}
+				}
+
+				function onDrag(d) {
+					// If the car is main and escaped the field, do nothing
+					if (d.name == 'X' && d.escaped)
+						return;
+
+					if (d.type == CarType.HORIZONTAL) {
+						// Update x value
+						d3.select(this).attr("x", 
+							d.x = Math.max(Math.min(d3.event.x, d.max_x), d.min_x));
+						// If the car is main and passes the field
+						if (d.name == 'X' && d.x >= ((6 - 0.5 * d.length) * cellSize))
+							onCarExit(d3.select(this), d);
+					} else if (d.type == CarType.VERTICAL) {
+						// Update y value
+						d3.select(this).attr("y", 
+							d.y = Math.max(Math.min(d3.event.y, d.max_y), d.min_y));
+					}
+				}
+
+				function onDragEnd(d) {
+					// If the car is main and escaped the field, do nothing
+					if (d.name == 'X' && d.escaped)
+						return;
+
+					d3.select(this).classed("active", false);
+
+					if (d.type == CarType.HORIZONTAL) {
+						// Clip to nearest position
+						d.i = Math.max(Math.min(Math.round(d3.event.x / cellSize), d.max_i), d.min_i);
+						d.x = cellSize * d.i;
+						d3.select(this).attr("x", d.x);
+
+						// If the car is main and passes the field
+						if (d.name == 'X' && 2 * d.i >= (2 * 6 - d.length))
+							onCarExit(d3.select(this), d);
+						else {
+							// Add car to boolean field
+							for (var i = d.i; i < d.i + d.length; i++)
+								occupied[i][d.j] = true;
+						}
+					} else if (d.type == CarType.VERTICAL) {
+						// Clip to nearest position
+						d.j = Math.max(Math.min(Math.round(d3.event.y / cellSize), d.max_j), d.min_j);
+						d.y = cellSize * d.j;
+						d3.select(this).attr("y", d.y);
+						// Add car to boolean field
+						for (var j = d.j; j < d.j + d.length; j++)
+							occupied[d.i][j] = true;
+					}
+				}
+
+				// Called when the main car exits
+				function onCarExit(car, d) {
+					d.escaped = true;
+					car.transition().ease(d3.easeQuad).duration(1000).attr("x", d.x + cellSize * 18);
+				}
+			}
+
+			loadLevel(rawLevelStrings[2]);
+		</script>
+	</body>
+</html>
